@@ -54,3 +54,17 @@ def test_func_at_finds_innermost(ix):
 def test_body_hash_is_stable(ix):
     again = Index(MINIREPO, ["main.py", "app"])
     assert again.funcs["main.py::main"].body_hash == ix.funcs["main.py::main"].body_hash
+
+
+def test_src_layout_absolute_imports(tmp_path):
+    """``src/pkg/b.py`` doing ``from pkg.a import f`` resolves (src/ is not part of the module name)."""
+    pkg = tmp_path / "src" / "pkg"
+    pkg.mkdir(parents=True)
+    (pkg / "__init__.py").write_text("")
+    (pkg / "a.py").write_text("def f():\n    pass\n")
+    (pkg / "b.py").write_text("from pkg.a import f\nimport pkg.a as amod\n\ndef g():\n    f()\n    amod.f()\n")
+    ix = Index(str(tmp_path), ["src"])
+    assert "pkg.a" in ix.modules and ix.lookup("pkg.a.f") == "src/pkg/a.py::f"
+    from callgraph import Resolver
+    rs, g = Resolver(ix), ix.funcs["src/pkg/b.py::g"]
+    assert {t for c in g.calls for t, _ in rs.resolve_call(c, g)} == {"src/pkg/a.py::f"}

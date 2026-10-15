@@ -100,7 +100,7 @@ class PageBuilder:
         """Node record for a function or class. ``_self`` is internal and stripped in :meth:`finish`."""
         obj = self.ix.obj(oid)
         desc, note = self.overlay.describe(oid, obj)
-        n = {"id": oid, "label": self.label(oid), "q": f"{obj.module}.{obj.qual}", "loc": f"{obj.path}:{obj.lineno}",
+        n = {"id": oid, "label": self.label(oid), "q": f"{obj.module}.{obj.qual}", "loc": self.ix.loc(oid),
              "desc": desc or "(no docstring)", "group": group, "stage": self.stage_for(obj.path), "_self": self_cls}
         if ext:
             n["ext"] = True

@@ -6,23 +6,36 @@ This is the "list the connections" layer. It has no notion of views or pages; th
 per view, while ``trace`` and ``edges`` use this precomputed graph.
 """
 
+import os
 from dataclasses import dataclass, replace
 from typing import Dict, Iterable, Iterator, List, Optional, Pattern
 
 from .index import Index
+from .symbols import TOPLEVEL
 from .resolver import INFERRED, Resolver
 from .symbols import Call
 
 
 def short_label(ix: Index, oid: str) -> str:
-    """``Class.method`` for methods, the bare name for module-level functions."""
-    parts = ix.obj(oid).qual.split(".")
+    """``Class.method`` for methods, the bare name for module-level functions, the file name for a
+    module's top-level code (a script or notebook)."""
+    o = ix.obj(oid)
+    if o.qual == TOPLEVEL:
+        return os.path.basename(o.path)
+    parts = o.qual.split(".")
     return ".".join(parts[-2:]) if len(parts) > 1 else parts[0]
+
+
+def describe_loop(loop: str) -> str:
+    """``for x in xs`` -> ``per x in xs · ``, ``while cond`` -> ``in loop while cond · ``, "" -> ""."""
+    if not loop:
+        return ""
+    return f"per {loop[4:]} · " if loop.startswith("for ") else f"in loop {loop} · "
 
 
 def describe_call(call: Call, target_label: str, inferred: bool = False) -> str:
     """What is passed along an edge, e.g. ``per item in items · write(item, path)``."""
-    data = (f"per {call.loops[-1][4:]} · " if call.loops else "") + f"{target_label.split('.')[-1]}({call.args})"
+    data = describe_loop(call.loops[-1] if call.loops else "") + f"{target_label.split('.')[-1]}({call.args})"
     return data + ("  [target inferred by method name]" if inferred else "")
 
 

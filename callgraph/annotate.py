@@ -33,6 +33,7 @@ from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 from .graph import CallGraph, short_label
 from .index import Index
+from .symbols import TOPLEVEL
 
 DEFAULT_MODEL = "Qwen/Qwen3-4B-Instruct-2507"
 PROMPT_VERSION = 2  # bump when prompts change: cached text from older prompts is regenerated
@@ -162,11 +163,8 @@ def clean(text: str, limit: int = MAX_CHARS) -> str:
 
 def function_source(ix: Index, fid: str, max_lines: int = MAX_SOURCE_LINES) -> str:
     f = ix.funcs[fid]
-    try:
-        with open(os.path.join(ix.root, f.path), encoding="utf-8") as fh:
-            src = ast.get_source_segment(fh.read(), f.node) or ""
-    except OSError:
-        src = ""
+    mod = ix.by_path.get(f.path)
+    src = f.source or (ast.get_source_segment(mod.source, f.node) if mod is not None and mod.source else "") or ""
     lines = src.splitlines()
     if len(lines) > max_lines:
         lines = lines[:max_lines] + [f"    # … {len(lines) - max_lines} more lines"]
@@ -178,7 +176,11 @@ def function_prompt(ix: Index, graph: CallGraph, fid: str) -> Messages:
     calls = [short_label(ix, e.callee) for e in graph.callees(fid)][:15]
     callers = [short_label(ix, e.caller) for e in graph.callers(fid)][:10]
     owner = ix.classes[f.cls] if f.cls else None
-    parts = [f"File: {f.path}", f"Function: {f.qual}"]
+    if f.qual == TOPLEVEL:
+        kind = "notebook" if f.path.endswith(".ipynb") else "script"
+        parts = [f"File: {f.path}", f"Function: the top-level code of the {kind} {os.path.basename(f.path)}"]
+    else:
+        parts = [f"File: {f.path}", f"Function: {f.qual}"]
     if owner and owner.doc:
         parts.append(f"Its class: {owner.name}: {owner.doc}")
     if f.doc:

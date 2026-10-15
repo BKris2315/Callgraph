@@ -14,7 +14,10 @@ id on the page, as the key in overlay files and as the ``ref`` in view specs.
 import ast
 import re
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
+
+# Name of the pseudo-function that holds a module's top-level code (scripts, notebooks, `if __name__ == "__main__"`).
+TOPLEVEL = "<module>"
 
 
 def node_text(node: Optional[ast.AST], limit: int = 90) -> str:
@@ -73,6 +76,7 @@ class Func:
     calls: List[Call] = field(default_factory=list)
     local_types: Dict[str, ast.expr] = field(default_factory=dict)  # name -> annotation or constructor call
     body_hash: str = ""  # changes whenever the function's AST changes
+    source: str = ""  # set for TOPLEVEL pseudo-functions (their statements are not one contiguous node)
 
 
 @dataclass
@@ -96,7 +100,7 @@ class Klass:
 
 @dataclass
 class Module:
-    """A parsed ``.py`` file."""
+    """A parsed ``.py`` file or Jupyter notebook."""
 
     path: str
     name: str  # dotted module name
@@ -105,3 +109,7 @@ class Module:
     imports: Dict[str, str] = field(default_factory=dict)  # local name -> fully qualified dotted name
     stars: List[str] = field(default_factory=list)  # modules imported with ``from x import *``
     defs: Dict[str, str] = field(default_factory=dict)  # top-level name -> func/class id
+    source: str = ""  # the Python source (for notebooks: the code cells, see callgraph.notebooks)
+    notebook: bool = False
+    cells: List[Tuple[int, int]] = field(default_factory=list)  # notebooks: (first line, cell number), ascending
+    driver: bool = False  # a notebook or a script outside any package: code that uses the library, not part of it

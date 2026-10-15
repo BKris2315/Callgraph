@@ -1,4 +1,4 @@
-// Call-graph page renderer. Reads window.CALLGRAPH (schema: src/callgraph/views/builder.py) and
+// Call-graph page renderer. Reads window.CALLGRAPH (schema: callgraph/views/builder.py) and
 // draws one view at a time with Cytoscape, laid out by layout.js (ELK): rail of views on the left,
 // zoomable graph in the middle, inspector on the right. Collapsing a group, switching direction and
 // focusing on a function re-run the layout and animate from the old drawing to the new one.
@@ -110,7 +110,7 @@
       const stage = n.stage || (g && (g.stage || g.id)) || "config";
       const alone = g && solo.has(g.id);
       els.push({
-        data: { id: n.id, parent: g && !alone ? g.id : undefined, label: alone ? `${n.label}\n${g.label.split("/").pop()}` : n.label, kind: "fn", stage, goto: n.goto || "" },
+        data: { id: n.id, parent: g && !alone ? g.id : undefined, label: alone && n.label !== g.label.split("/").pop() ? `${n.label}\n${g.label.split("/").pop()}` : n.label, kind: "fn", stage, goto: n.goto || "" },
         classes: ["fn", n.goto ? "goto" : "", n.ext ? "ext" : "", alone ? "solo" : ""].join(" "),
       });
     }

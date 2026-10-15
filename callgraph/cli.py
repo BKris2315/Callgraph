@@ -27,7 +27,7 @@ import sys
 import tempfile
 from typing import Iterator, List, Optional
 
-from .graph import CallGraph, short_label
+from .graph import CallGraph, describe_loop, short_label
 from .index import Index
 from . import autospec
 from .overlay import Overlay
@@ -88,7 +88,7 @@ def _func(ix: Index, query: str) -> str:
 
 def _loc(ix: Index, oid: str) -> str:
     o = ix.obj(oid)
-    return f"{o.path}:{o.lineno}"
+    return ix.loc(oid)
 
 
 def _build(args, spec, snap: Snapshot, ix: Index, rs: Resolver):
@@ -128,7 +128,7 @@ def cmd_find(args) -> None:
         for h in hits:
             o = ix.obj(h)
             kind = "class" if h in ix.classes else "def"
-            print(f"{kind:5} {h}  ({o.path}:{o.lineno})" + (f"  — {o.doc[:80]}" if args.doc and o.doc else ""))
+            print(f"{kind:5} {h}  ({ix.loc(h)})" + (f"  — {o.doc[:80]}" if args.doc and o.doc else ""))
 
 
 def cmd_trace(args) -> None:
@@ -164,8 +164,8 @@ def _edge_rows_repo(args, ix: Index, g: CallGraph) -> List[dict]:
         if path_rx and not (path_rx.search(ix.obj(e.caller).path) or path_rx.search(ix.obj(e.callee).path)):
             continue
         rows.append({"caller": e.caller, "callee": e.callee, "caller_label": short_label(ix, e.caller),
-                     "callee_label": short_label(ix, e.callee), "where": f"{ix.obj(e.caller).path}:{e.line}",
-                     "order": None, "data": (f"per {e.loop[4:]} · " if e.loop else "") + f"({e.args})", "condition": e.condition,
+                     "callee_label": short_label(ix, e.callee), "where": ix.loc(e.caller, e.line),
+                     "order": None, "data": describe_loop(e.loop) + f"({e.args})", "condition": e.condition,
                      "inferred": e.inferred})
     if src:
         for i, r in enumerate(rows, 1):

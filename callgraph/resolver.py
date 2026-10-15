@@ -161,7 +161,7 @@ class Resolver:
                 m = ix.find_method(r, name)
                 return [(m, "")] if m else []
             if base.id in mod.imports:
-                r = ix.lookup(f"{mod.imports[base.id]}.{name}")
+                r = ix.lookup_from(f"{mod.imports[base.id]}.{name}", mod)
                 if r in ix.funcs:
                     return [(r, "")]
                 if r in ix.classes:
@@ -181,7 +181,7 @@ class Resolver:
         dotted = node_text(fn, 200)
         first = dotted.split(".")[0]
         if first in mod.imports:
-            r = ix.lookup(mod.imports[first] + dotted[len(first):])
+            r = ix.lookup_from(mod.imports[first] + dotted[len(first):], mod)
             if r in ix.funcs:
                 return [(r, "")]
             if r in ix.classes:

@@ -1,7 +1,10 @@
 """
 Static index of a Python source tree: modules, classes, functions and the calls inside them.
 
-Nothing is imported or executed; every file is parsed with :mod:`ast`. The index answers
+Nothing is imported or executed; every file is parsed with :mod:`ast`. Jupyter notebooks are read
+as modules too (their code cells, see :mod:`callgraph.notebooks`), and every module's top-level
+code (a script's body, a notebook's cells, ``if __name__ == "__main__":``) becomes a
+pseudo-function named :data:`~callgraph.symbols.TOPLEVEL`, so calls made there are part of the graph. The index answers
 *name* questions (what does ``Foo`` refer to in this module, what are the bases of a class,
 which method does ``Foo.bar`` resolve to through the MRO). Working out what a *call* targets
 is the job of :class:`callgraph.resolver.Resolver`, which builds on this.
@@ -11,9 +14,14 @@ import ast
 import hashlib
 import os
 import re
+import sys
 from typing import Dict, Iterable, List, Optional, Tuple
 
-from .symbols import Call, Func, Klass, Module, doc_summary, node_text
+from .notebooks import cell_of, notebook_source
+from .symbols import TOPLEVEL, Call, Func, Klass, Module, doc_summary, node_text
+
+SOURCE_SUFFIXES = (".py", ".ipynb")
+_STDLIB = set(getattr(sys, "stdlib_module_names", ()))
 
 
 class CallCollector(ast.NodeVisitor):
@@ -45,7 +53,9 @@ class CallCollector(ast.NodeVisitor):
 
     def visit_While(self, node: ast.While) -> None:
         self.visit(node.test)
-        self._visit_block(node.body, f"while {node_text(node.test, 60)}")
+        self.loops.append(f"while {node_text(node.test, 60)}")
+        self._visit_block(node.body)
+        self.loops.pop()
         self._visit_block(node.orelse)
 
     def visit_For(self, node) -> None:
@@ -94,7 +104,7 @@ class Index:
 
     Args:
         root: directory to index (a checkout of the repository).
-        include: paths relative to ``root``; directories are walked, ``.py`` files taken as-is.
+        include: paths relative to ``root``; directories are walked, ``.py`` / ``.ipynb`` files taken as-is.
         exclude: regexes matched against the relative path; matching files are skipped.
     """
 
@@ -108,37 +118,50 @@ class Index:
         self.subclasses: Dict[str, List[str]] = {}  # class id -> direct in-repo subclasses
         self.parse_errors: List[str] = []
         self._mro: Dict[str, List[str]] = {}
+        self._suffix: Dict[str, str] = {}  # unique trailing part of a dotted module name -> module name
         self._load(list(include), [re.compile(x) for x in exclude])
         self._link()
 
     # ------------------------------------------------------------------ loading
     @staticmethod
     def _modname(path: str) -> str:
-        mod = path[:-3].replace(os.sep, ".").replace("/", ".")
+        """Dotted module name as the code imports it: ``src/pkg/mod.py`` -> ``pkg.mod`` (src layout)."""
+        path = os.path.splitext(path.replace(os.sep, "/"))[0]
+        if path.startswith("src/"):
+            path = path[4:]
+        mod = path.replace("/", ".")
         return mod[: -len(".__init__")] if mod.endswith(".__init__") else mod
 
     def _load(self, include: List[str], exclude) -> None:
         paths = []
         for inc in include:
             full = os.path.join(self.root, inc)
-            if os.path.isfile(full) and inc.endswith(".py"):
+            if os.path.isfile(full) and inc.endswith(SOURCE_SUFFIXES):
                 paths.append(inc)
             elif os.path.isdir(full):
                 for d, dirs, files in os.walk(full):
                     # hidden folders (.git, .venv, .tox, ...) and installed packages are never source
                     dirs[:] = [x for x in dirs if not x.startswith(".") and x not in ("__pycache__", "node_modules", "site-packages")]
-                    paths += [os.path.relpath(os.path.join(d, f), self.root) for f in files if f.endswith(".py")]
+                    paths += [os.path.relpath(os.path.join(d, f), self.root) for f in files if f.endswith(SOURCE_SUFFIXES)]
         for rel in sorted(set(paths)):
             rel = rel.replace(os.sep, "/")
             if any(p.search(rel) for p in exclude):
                 continue
+            notebook = rel.endswith(".ipynb")
+            cells, doc = [], ""
             try:
                 with open(os.path.join(self.root, rel), encoding="utf-8") as fh:
-                    tree = ast.parse(fh.read(), filename=rel)
-            except (SyntaxError, UnicodeDecodeError) as e:
+                    text = fh.read()
+                if notebook:
+                    text, cells, skipped, doc = notebook_source(text)
+                    if skipped:
+                        self.parse_errors.append(f"{rel}: {skipped} cell(s) skipped (not valid Python)")
+                tree = ast.parse(text, filename=rel)
+            except (SyntaxError, UnicodeDecodeError, ValueError) as e:
                 self.parse_errors.append(f"{rel}: {e}")
                 continue
-            mod = Module(rel, self._modname(rel), tree, doc_summary(tree, 200))
+            mod = Module(rel, self._modname(rel), tree, doc or doc_summary(tree, 200), source=text,
+                         notebook=notebook, cells=cells, driver=self._is_driver(rel, notebook))
             self.modules[mod.name] = mod
             self.by_path[rel] = mod
             self._index_module(mod)
@@ -167,6 +190,40 @@ class Index:
                     else:
                         mod.imports.setdefault(a.name.split(".")[0], a.name.split(".")[0])
         self._index_body(mod, mod.tree.body, prefix="", cls=None)
+        self._index_toplevel(mod)
+
+    def _is_driver(self, rel: str, notebook: bool) -> bool:
+        """Notebooks, and scripts that are not part of a package (no ``__init__.py`` next to them)."""
+        if notebook:
+            return True
+        folder = os.path.dirname(rel)
+        if rel.startswith("src/") or os.path.basename(rel) == "__init__.py":
+            return False
+        return not os.path.exists(os.path.join(self.root, folder, "__init__.py"))
+
+    def _index_toplevel(self, mod: Module) -> None:
+        """Top-level statements with calls in them -> one pseudo-function ``path::<module>``."""
+        body = [s for s in mod.tree.body if not isinstance(s, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Import, ast.ImportFrom))]
+        if body and isinstance(body[0], ast.Expr) and isinstance(getattr(body[0], "value", None), ast.Constant):
+            body = body[1:]  # the module docstring
+        if not any(isinstance(n, ast.Call) for s in body for n in ast.walk(s)):
+            return
+        extra = {"type_params": []} if "type_params" in ast.FunctionDef._fields else {}  # Python 3.12+
+        node = ast.FunctionDef(name=TOPLEVEL, args=ast.arguments(posonlyargs=[], args=[], vararg=None, kwonlyargs=[],
+                                                                 kw_defaults=[], kwarg=None, defaults=[]),
+                               body=body, decorator_list=[], returns=None, **extra)
+        node.lineno, node.col_offset = body[0].lineno, 0
+        node.end_lineno, node.end_col_offset = body[-1].end_lineno, body[-1].end_col_offset
+        fid = f"{mod.path}::{TOPLEVEL}"
+        f = Func(fid, mod.path, mod.name, TOPLEVEL, TOPLEVEL, None, node.lineno, mod.doc, [], node)
+        col = CallCollector()
+        for s in body:
+            col.visit(s)
+        f.calls = col.calls
+        f.body_hash = hashlib.sha1(ast.dump(node, include_attributes=False).encode()).hexdigest()[:12]
+        f.source = "\n".join(ast.get_source_segment(mod.source, s) or "" for s in body)
+        self._collect_local_types(f)
+        self.funcs[fid] = f
 
     def _index_body(self, mod: Module, body, prefix: str, cls: Optional[Klass]) -> None:
         for node in body:
@@ -246,6 +303,26 @@ class Index:
         for kid in self.classes:
             for b in self.base_ids(kid):
                 self.subclasses.setdefault(b, []).append(kid)
+        counts: Dict[str, List[str]] = {}
+        for name in self.modules:
+            parts = name.split(".")
+            for i in range(1, len(parts)):
+                counts.setdefault(".".join(parts[i:]), []).append(name)
+        self._suffix = {k: v[0] for k, v in counts.items() if len(v) == 1 and k not in self.modules}
+        # A top-level script that other files import (``model.py`` next to ``train.py``) is library code, not a driver.
+        imported = set()
+        for mod in self.modules.values():
+            for dotted in list(mod.imports.values()) + mod.stars:
+                parts = dotted.split(".")
+                for i in range(len(parts), 0, -1):
+                    head = ".".join(parts[:i])
+                    target = self.modules.get(head) or (self.modules.get(self._suffix[head]) if head in self._suffix and parts[0] not in _STDLIB else None)
+                    if target is not None and target is not mod:
+                        imported.add(target.path)
+                        break
+        for mod in self.modules.values():
+            if mod.driver and not mod.notebook and mod.path in imported:
+                mod.driver = False
 
     # ------------------------------------------------------------------ name lookup
     def lookup(self, fq: str, _depth: int = 0) -> Optional[str]:
@@ -280,12 +357,26 @@ class Index:
             return self.find_method(target, tail[0])
         return None
 
+    def lookup_from(self, fq: str, mod: Module) -> Optional[str]:
+        """:meth:`lookup` as seen from ``mod``. Notebooks and scripts often reach the library through
+        ``sys.path`` tricks (``import data`` for ``lab/data.py``), so for them a name that matches the
+        unique tail of an in-repo module name is accepted, unless it is a standard-library module."""
+        r = self.lookup(fq)
+        if r or not mod.driver or not fq:
+            return r
+        parts = fq.split(".")
+        for i in range(len(parts), 0, -1):
+            head = ".".join(parts[:i])
+            if head in self._suffix and parts[0] not in _STDLIB:
+                return self.lookup(".".join([self._suffix[head]] + parts[i:]))
+        return None
+
     def resolve_name(self, name: str, mod: Module) -> Optional[str]:
         """What a bare name refers to inside ``mod``: a local def, an import or a star import."""
         if name in mod.defs:
             return mod.defs[name]
         if name in mod.imports:
-            return self.lookup(mod.imports[name])
+            return self.lookup_from(mod.imports[name], mod)
         for star in mod.stars:
             r = self.lookup(f"{star}.{name}")
             if r:
@@ -322,7 +413,7 @@ class Index:
             dotted = node_text(expr, 200)
             first = dotted.split(".")[0]
             if first in mod.imports:
-                r = self.lookup(mod.imports[first] + dotted[len(first):])
+                r = self.lookup_from(mod.imports[first] + dotted[len(first):], mod)
                 return r if r in self.classes else None
         return None
 
@@ -389,6 +480,15 @@ class Index:
         return any(node_text(d) in ("property", "cached_property", "functools.cached_property") for d in f.decorators)
 
     # ------------------------------------------------------------------ lookups by location / name
+    def loc(self, oid: str, line: Optional[int] = None) -> str:
+        """Where something is, for people: ``path:line``, or ``notebook.ipynb:cell 3`` in notebooks."""
+        o = self.obj(oid)
+        line = line or o.lineno
+        mod = self.by_path.get(o.path)
+        if mod is not None and mod.notebook:
+            return f"{o.path}:cell {cell_of(mod.cells, line)}"
+        return f"{o.path}:{line}"
+
     def obj(self, oid: str):
         """The :class:`Func` or :class:`Klass` with this id, or ``None``."""
         return self.funcs.get(oid) or self.classes.get(oid)
@@ -412,11 +512,16 @@ class Index:
     def find(self, query: str) -> List[str]:
         """Ids matching a user-typed name, best matches first.
 
-        Accepts a full id (``path::Qual.name``), a dotted module path (``pkg.engine.Engine.run``),
+        Accepts a file name or path of a script/notebook (its top-level code), a full id (``path::Qual.name``), a dotted module path (``pkg.engine.Engine.run``),
         a qualified name (``Model.forward``) or a bare name (``forward``).
         """
         if query in self.funcs or query in self.classes:
             return [query]
+        # a notebook or script by file name or path: its top-level code
+        files = [f"{p}::{TOPLEVEL}" for p in self.by_path if p == query or os.path.basename(p) == query]
+        files = [f for f in files if f in self.funcs]
+        if files:
+            return sorted(files)
         hit = self.lookup(query)
         if hit:
             return [hit]

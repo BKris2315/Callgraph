@@ -63,17 +63,47 @@ elkjs and the IBM Plex fonts from public CDNs when it is opened.
 
 ## How the automatic views are chosen
 
-1. **Source**: `src/` if the code lives there. Otherwise every top-level folder and `.py` file
-   with Python in it, except tests, docs, examples, build output, virtual environments and hidden
+1. **Source**: every top-level folder and file with Python in it (`.py` or Jupyter `.ipynb`),
+   `src/` included, except tests, docs, examples, build output, virtual environments and hidden
    folders.
-2. **Groups**: one per top-level package. When nearly everything is in one package, there is one
-   group per sub-package or module instead, so a single-package library still gets several views.
-3. **Entry points**: public functions and methods that nothing in the repository calls (plus any
-   `main`), ranked by how much code they reach. Names such as `main`, `cli`, `run`, and anything in
-   `__main__.py`, `cli.py`, `main.py` or `app.py`, come first. Each group keeps its top 6.
-4. **Views**: one per group. Each view follows its entry points three calls deep through their
-   package, with one box per source file.
-5. **Overview**: one box per view, with an arrow wherever one view's code calls into another's.
+2. **Drivers and library**: notebooks, and scripts that are neither inside a package nor imported
+   by other files, *drive* the code. Everything else is the library.
+3. **Driver views** come first: one per folder of notebooks or scripts (`notebooks/`, `scripts/`,
+   the files at the top level). Every notebook or script whose code reaches into the repository
+   is an entry point, in file order.
+4. **Library groups**: one per top-level package. When nearly everything is in one package, there
+   is one group per sub-package or module instead, so a single-package library still gets several
+   views.
+5. **Library entry points**: public functions and methods that nothing *in the library* calls
+   (plus any `main`), ranked by how much code they reach. Calls from notebooks, scripts and
+   `if __name__ == "__main__":` demos don't count against them. Names such as `main`, `cli`,
+   `run`, and anything in `__main__.py`, `cli.py`, `main.py` or `app.py`, come first. Each group
+   keeps its top 6.
+6. **Views**: each view follows its entry points three calls deep, with one box per source file.
+7. **Overview**: one box per view, with an arrow wherever one view's code calls into another's.
+   When there are notebooks or scripts, it also lists the library files none of them reaches.
+
+### Research repositories, notebooks and scripts
+
+Callgraph is also meant for code that isn't a tidy package: a loose `src/` folder, notebooks that
+use it, and scripts written as plain top-level code.
+
+- **Notebooks** are read cell by cell. `%magics`, `!shell` lines and `obj?` help lookups are
+  neutralised. A cell that isn't valid Python is skipped (and reported), and the rest of the
+  notebook is kept. Locations read `analysis.ipynb:cell 7`, and the first markdown cell becomes
+  the notebook's description.
+- **Top-level code** of every file is analysed as if it were a function named after the file:
+  script bodies, notebook cells, `if __name__ == "__main__":` blocks. `while` and `for` loops and
+  `if` conditions around each call are kept.
+- **`sys.path` imports.** Notebooks and scripts that reach the library through `sys.path` (e.g.
+  `import data` for `src/lab/data.py`) are resolved when the name matches exactly one module. This
+  applies only to notebooks and scripts, and never to standard-library names.
+- **Finding them:** `callgraph trace analysis.ipynb` and `callgraph trace train.py` follow a
+  notebook or script by file name.
+
+The overview then answers questions such as "which notebooks use which modules" and "which library
+files does nothing use any more". Code that is run with `exec(...)` or `%run`, or loaded by
+string, is still invisible.
 
 These are heuristics. To choose the views yourself, write the automatic spec to a file, edit it,
 and pass it back:
@@ -97,14 +127,14 @@ VIEWS = [
 ]
 ```
 
-The full list of settings is in [specs/\_\_init\_\_.py](src/callgraph/specs/__init__.py). Available
+The full list of settings is in [specs/\_\_init\_\_.py](callgraph/specs/__init__.py). Available
 colours: slate, amber, indigo, teal, red, purple, olive, taupe, blue, rose.
 
 ### Hand-written descriptions (optional)
 
 By default, nodes show their docstrings. To add your own text (function descriptions, view intros,
 notes), pass a JSON overlay with `--overlay notes.json`, or set `OVERLAY` in a spec. The format is
-described in [overlay.py](src/callgraph/overlay.py). A description stays attached to its function
+described in [overlay.py](callgraph/overlay.py). A description stays attached to its function
 for as long as that function exists, and the page warns when the function has changed since the
 text was written.
 
@@ -182,7 +212,7 @@ Static analysis has limits:
 ## The page
 
 The layout is done in the browser by [ELK](https://eclipse.dev/elk/)'s layered algorithm
-([web/layout.js](src/callgraph/web/layout.js)):
+([web/layout.js](callgraph/web/layout.js)):
 
 - File boxes are laid out as boxes, and edges are routed around them at right angles.
 - A caller's calls appear in order (1, 2, 3 … across the page). Each number gets room reserved on
@@ -229,14 +259,16 @@ for edge in g.callers("src/pkg/util.py::load"):
 ## Code map
 
 ```
-src/callgraph/
+callgraph/
   source.py         snapshot of the repo: git archive of a commit, the working tree, or a plain folder
   symbols.py        records for modules, classes, functions, calls
-  index.py          ast index: imports, classes, functions, calls with their if/for/except context
+  index.py          ast index of .py and .ipynb files: imports, classes, functions, top-level code, calls
+                    with their if/for/while/except context
   resolver.py       which function each call runs
   graph.py          CallGraph: every resolved call            ← `edges`
   trace.py          call trees down/up from one function       ← `trace`
-  autospec.py       automatic views: source folders, groups, entry points
+  notebooks.py      Jupyter notebooks as Python source (magics neutralised, cell numbers kept)
+  autospec.py       automatic views: source folders, drivers vs library, groups, entry points
   annotate.py       optional local-LLM descriptions (transformers)  ← `annotate`
   specs/            spec loading and defaults
   views/            builder (walks, numbered edges), pipeline (one view), overview

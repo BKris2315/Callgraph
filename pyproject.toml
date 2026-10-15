@@ -19,11 +19,11 @@ dev = ["pytest>=7", "playwright>=1.40"]
 callgraph = "callgraph.cli:main"
 
 [tool.setuptools.packages.find]
-where = ["src"]
+include = ["callgraph*"]
 
 [tool.setuptools.package-data]
 callgraph = ["web/*"]
 
 [tool.pytest.ini_options]
-pythonpath = ["src"]
+pythonpath = ["."]
 testpaths = ["tests"]

@@ -1,14 +1,20 @@
 """
 The overview view: one box per view, and an arrow wherever one view's code calls into another's.
 
+When the repository has notebooks or scripts that drive the library, the intro also lists the
+library files none of them reaches (following calls all the way down): candidates for dead code
+in research repositories.
+
 An arrow A → B counts the functions drawn in view A that belong to view B: they live in the files B
 ``owns`` (automatic views) or, for hand-written views without ``owns``, the files B walks
 (``include``), and not in A's own. Double-clicking a box opens its view.
 """
 
 import re
+from collections import deque
 from typing import List
 
+from ..graph import CallGraph
 from .builder import PageBuilder
 
 GROUP = "o_views"
@@ -44,5 +50,26 @@ def build_overview(pb: PageBuilder, view_ids: List[str]) -> str:
     intro = list(v.get("intro") or [])
     intro.insert(0, f"Generated from {snap.label} ({snap.date}): {snap.subject}. "
                     "One box per view; an arrow means code in one view calls into the other. Double-click a box to open it.")
+    unused = unreached_library_files(pb)
+    if unused:
+        intro.append(f"Library files no notebook or script reaches: {', '.join(unused)}.")
     v["intro"] = intro
     return "overview"
+
+
+def unreached_library_files(pb: PageBuilder) -> List[str]:
+    """Library files (with functions) that no notebook or script reaches; [] when there are no drivers."""
+    ix = pb.ix
+    drivers = [fid for fid, f in ix.funcs.items() if ix.by_path[f.path].driver]
+    if not drivers:
+        return []
+    graph = CallGraph(ix, pb.rs)
+    seen, q = set(drivers), deque(drivers)
+    while q:
+        for e in graph.callees(q.popleft()):
+            if e.callee not in seen:
+                seen.add(e.callee)
+                q.append(e.callee)
+    reached = {ix.funcs[fid].path for fid in seen}
+    library = {f.path for f in ix.funcs.values() if not ix.by_path[f.path].driver and f.name != "<module>"}
+    return sorted(library - reached)

@@ -36,7 +36,7 @@ class TraceNode:
 
     def to_dict(self, graph: CallGraph) -> dict:
         o = graph.ix.obj(self.fid)
-        d = {"id": self.fid, "label": short_label(graph.ix, self.fid), "loc": f"{o.path}:{o.lineno}"}
+        d = {"id": self.fid, "label": short_label(graph.ix, self.fid), "loc": graph.ix.loc(self.fid)}
         if self.edge is not None:
             d.update(order=self.order, call_line=self.edge.line, args=self.edge.args,
                      condition=self.edge.condition, loop=self.edge.loop, inferred=self.edge.inferred)
@@ -100,7 +100,7 @@ def format_tree(graph: CallGraph, node: TraceNode, show_args: bool = False, show
         o = graph.ix.obj(n.fid)
         text = (f"{n.order} " if n.order is not None else "") + short_label(graph.ix, n.fid)
         if show_loc:
-            text += f"  {o.path}:{o.lineno}"
+            text += f"  {graph.ix.loc(n.fid)}"
         if n.edge is not None:
             if n.edge.loop:
                 text += f"  [{n.edge.loop}]"

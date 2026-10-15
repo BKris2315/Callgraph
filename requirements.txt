@@ -1,0 +1,22 @@
+# Callgraph needs only Python >= 3.9 and git. The package itself has no dependencies:
+#
+#     pip install -r requirements.txt
+#
+-e .
+
+# ---------------------------------------------------------------------------------------------
+# Optional features: uncomment the blocks you want, or use the matching extra instead,
+# e.g. pip install -e '.[llm,check,dev]'. Tested with the versions in brackets.
+
+# `callgraph annotate`: descriptions written by a local language model        (extra: llm)
+# For a GPU build of torch, install it first from https://pytorch.org/get-started/locally/
+# transformers>=4.56      # [4.57.1]
+# torch>=2.1              # [2.9.0]
+# accelerate>=0.30        # [1.11.0]
+
+# `callgraph check-layout`: overlap check in headless Chromium               (extra: check)
+# afterwards run: playwright install chromium
+# playwright>=1.40        # [1.64.0]
+
+# running the tests                                                           (extra: dev)
+# pytest>=7               # [9.1.1]

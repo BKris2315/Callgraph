@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{TITLE}} Call Graph</title>
+<!-- Page shell. callgraph.render inlines app.css, the graph data, layout.js, minimap.js and app.js into one self-contained file. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/*__CSS__*/
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <h1>{{TITLE}} <span>call graph</span></h1>
+    <div class="search">
+      <svg viewBox="0 0 24 24" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input id="q" type="search" placeholder="Find a function, e.g. {{SEARCH_EXAMPLE}}" autocomplete="off" aria-label="Find a function">
+      <div class="results" id="results" hidden></div>
+    </div>
+  </header>
+
+  <nav class="rail" id="rail" aria-label="Views"></nav>
+
+  <main class="stage">
+    <div class="stagebar" id="stagebar"></div>
+    <div id="cy" role="img" aria-label="Call graph"></div>
+    <div class="toggles">
+      <label><input type="checkbox" id="t-data"> Show data on edges</label>
+      <label>Direction <select id="t-dir" aria-label="Layout direction"><option value="AUTO">auto</option><option value="DOWN">top-down</option><option value="RIGHT">left-right</option></select></label>
+      <label><input type="checkbox" id="t-focus"> Focus on selection</label>
+    </div>
+    <div class="tools">
+      <button id="z-in" title="Zoom in" aria-label="Zoom in"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+      <button id="z-out" title="Zoom out" aria-label="Zoom out"><svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg></button>
+      <button id="z-fit" title="Fit whole graph" aria-label="Fit whole graph"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+      <button id="z-relayout" title="Re-run the layout" aria-label="Re-run the layout"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg></button>
+    </div>
+    <canvas class="minimap" id="minimap" hidden aria-label="Overview of the whole graph; click to move there"></canvas>
+    <div class="tip" id="tip" hidden></div>
+  </main>
+
+  <aside class="inspect" id="inspect"></aside>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.30.2/cytoscape.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/elkjs@0.9.3/lib/elk.bundled.js"></script>
+<script>
+/*__DATA__*/
+</script>
+<script>
+/*__LAYOUT__*/
+</script>
+<script>
+/*__MINIMAP__*/
+</script>
+<script>
+/*__APP__*/
+</script>
+</body>
+</html>

@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "callgraph"
+version = "1.0.0"
+description = "Static call graphs of any Python repository, traced from source and rendered as an interactive HTML page."
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = []
+
+[project.optional-dependencies]
+llm = ["transformers>=4.56", "torch>=2.1", "accelerate>=0.30"]  # `callgraph annotate` (local models)
+check = ["playwright>=1.40"]  # `callgraph check-layout`; then: playwright install chromium
+dev = ["pytest>=7", "playwright>=1.40"]
+
+[project.scripts]
+callgraph = "callgraph.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+callgraph = ["web/*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
